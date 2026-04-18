@@ -1,115 +1,83 @@
-# 📊 TradeSphere Multi-Source Market Data System
+# 📊 TradeSphere Market Data System
 
 ## Overview
 
-TradeSphere uses a robust, production-grade market data system with automatic fallback to ensure the app never breaks due to API failures.
+TradeSphere uses Finnhub API for reliable, real-time stock market data with intelligent caching for optimal performance.
 
-## 🌐 Data Sources
+## 🌐 Data Source
 
-### Primary API: 0xramm Indian Stock API
-- **Base URL**: `https://nse-api-ruby.vercel.app`
-- **Coverage**: NSE (National Stock Exchange) and BSE (Bombay Stock Exchange)
-- **Authentication**: No API key required
-- **Advantages**: 
-  - Free and open
-  - Indian market focus
-  - Real-time NSE/BSE data
-  - No rate limits
-
-### Secondary API: Finnhub (Fallback)
+### Finnhub API
 - **Base URL**: `https://finnhub.io/api/v1`
-- **Coverage**: Global markets including Indian stocks
+- **Coverage**: Global markets (US, Indian, European, Asian stocks)
 - **Authentication**: API key required
-- **Advantages**:
-  - Reliable global coverage
+- **Rate Limit**: 60 calls/minute (free tier)
+- **Advantages**: 
+  - Reliable uptime
   - Comprehensive data
-  - Good uptime
+  - Real-time quotes
+  - Historical data
+  - Company profiles
 
-## 🔄 Fallback Strategy
+## 📡 API Endpoints Used
 
-### Automatic Failover
+### Get Stock Quote
 ```
-Request → Primary API
-    ↓ (if fails)
-Fallback → Finnhub API
-    ↓ (if fails)
-Return Error → "Market data unavailable"
-```
-
-### Failure Scenarios Handled
-1. **Network timeout** (5 second timeout)
-2. **API down** (HTTP errors)
-3. **Invalid response** (malformed data)
-4. **Rate limiting** (too many requests)
-5. **Symbol not found** (graceful degradation)
-
-## 📡 API Endpoints
-
-### Primary API Endpoints
-
-#### Get Stock Quote
-```
-GET /stock?symbol=RELIANCE&res=num
+GET /quote?symbol=AAPL&token=API_KEY
 ```
 
 Response:
 ```json
 {
-  "symbol": "RELIANCE",
-  "last_price": 2450.50,
-  "change": 25.30,
-  "percent_change": 1.04,
-  "day_high": 2465.00,
-  "day_low": 2430.00,
-  "open": 2435.00,
-  "previous_close": 2425.20,
-  "total_traded_volume": 5234567
+  "c": 150.50,   // current price
+  "d": 2.30,     // change
+  "dp": 1.55,    // percent change
+  "h": 152.00,   // high
+  "l": 149.00,   // low
+  "o": 149.50,   // open
+  "pc": 148.20   // previous close
 }
 ```
 
-#### Get Multiple Stocks
+### Search Stocks
 ```
-GET /stock/list?symbols=RELIANCE,TCS,INFY&res=num
-```
-
-#### Search Stocks
-```
-GET /search?q=reliance
-```
-
-#### Historical Data
-```
-GET /stock/history?symbol=RELIANCE&period=1mo
-```
-
-### Finnhub API Endpoints
-
-#### Get Quote
-```
-GET /quote?symbol=RELIANCE.NS&token=API_KEY
+GET /search?q=apple&token=API_KEY
 ```
 
 Response:
 ```json
 {
-  "c": 2450.50,  // current price
-  "d": 25.30,    // change
-  "dp": 1.04,    // percent change
-  "h": 2465.00,  // high
-  "l": 2430.00,  // low
-  "o": 2435.00,  // open
-  "pc": 2425.20  // previous close
+  "result": [
+    {
+      "symbol": "AAPL",
+      "description": "Apple Inc",
+      "type": "Common Stock",
+      "displaySymbol": "AAPL"
+    }
+  ]
 }
 ```
 
-#### Search
+### Historical Data (Candles)
 ```
-GET /search?q=reliance&token=API_KEY
+GET /stock/candle?symbol=AAPL&resolution=D&from=1234567890&to=1234567890&token=API_KEY
 ```
 
-#### Candle Data
+Response:
+```json
+{
+  "c": [150.50, 151.20, ...],  // close prices
+  "h": [152.00, 153.00, ...],  // high prices
+  "l": [149.00, 150.00, ...],  // low prices
+  "o": [149.50, 150.50, ...],  // open prices
+  "v": [1000000, 1200000, ...], // volumes
+  "t": [1234567890, 1234567900, ...], // timestamps
+  "s": "ok"
+}
 ```
-GET /stock/candle?symbol=RELIANCE.NS&resolution=D&from=1234567890&to=1234567890&token=API_KEY
+
+### Company Profile
+```
+GET /stock/profile2?symbol=AAPL&token=API_KEY
 ```
 
 ## 🔧 Implementation
@@ -118,24 +86,20 @@ GET /stock/candle?symbol=RELIANCE.NS&resolution=D&from=1234567890&to=1234567890&
 
 ```typescript
 class MarketService {
-  // Main methods with fallback
+  // Core methods
   async getStockPrice(symbol: string): Promise<StockPrice>
   async getStockQuote(symbol: string): Promise<StockQuote>
   async getStocks(symbols: string[]): Promise<StockPrice[]>
   async searchStocks(query: string): Promise<SearchResult[]>
-  async getTimeSeries(symbol: string): Promise<TimeSeriesData[]>
+  async getTimeSeries(symbol: string, period: string): Promise<TimeSeriesData[]>
   
-  // Helper methods
-  private async fetchFromPrimaryAPI(symbol: string)
-  private async fetchFromFinnhub(symbol: string)
-  private normalizePrimaryData(data: any)
-  private formatSymbolForFinnhub(symbol: string)
+  // Utility methods
+  getPopularStocks(): string[]
+  clearCache(): void
 }
 ```
 
-### Data Normalization
-
-Both APIs return different formats. We normalize to:
+### Data Structures
 
 ```typescript
 interface StockPrice {
@@ -143,7 +107,6 @@ interface StockPrice {
   price: number;
   change: number;
   changePercent: number;
-  source: 'primary' | 'finnhub';
 }
 
 interface StockQuote extends StockPrice {
@@ -154,30 +117,33 @@ interface StockQuote extends StockPrice {
   previousClose: number;
   volume: number;
 }
+
+interface TimeSeriesData {
+  date: Date;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
 ```
-
-### Symbol Formatting
-
-Indian stocks need `.NS` suffix for Finnhub:
-- `RELIANCE` → `RELIANCE.NS` (NSE)
-- `RELIANCE` → `RELIANCE.BO` (BSE)
-
-US stocks remain unchanged:
-- `AAPL` → `AAPL`
-- `MSFT` → `MSFT`
 
 ## ⚡ Caching Strategy
 
 ### In-Memory Cache
 - **TTL**: 15 seconds
 - **Storage**: JavaScript Map
-- **Keys**: `price:SYMBOL`, `quote:SYMBOL`, `search:query`
+- **Keys**: 
+  - `price:SYMBOL` - Stock prices
+  - `quote:SYMBOL` - Full quotes
+  - `search:query` - Search results
+  - `timeseries:SYMBOL:period` - Historical data
 
 ### Cache Benefits
-1. Reduces API calls
-2. Improves response time
-3. Prevents rate limiting
-4. Better user experience
+1. **Reduces API calls** - Stay within rate limits
+2. **Improves response time** - Instant data for cached requests
+3. **Better UX** - Faster page loads
+4. **Cost savings** - Fewer API calls
 
 ### Cache Implementation
 ```typescript
@@ -191,46 +157,28 @@ class Cache {
 }
 ```
 
-## 🎯 Popular Indian Stocks
+## 🎯 Popular Stocks
 
-Default stocks displayed:
+Default stocks displayed on dashboard:
 ```typescript
 [
-  'RELIANCE',    // Reliance Industries
-  'TCS',         // Tata Consultancy Services
-  'HDFCBANK',    // HDFC Bank
-  'INFY',        // Infosys
-  'ICICIBANK',   // ICICI Bank
-  'HINDUNILVR',  // Hindustan Unilever
-  'ITC',         // ITC Limited
-  'SBIN',        // State Bank of India
-  'BHARTIARTL',  // Bharti Airtel
-  'KOTAKBANK',   // Kotak Mahindra Bank
-  'LT',          // Larsen & Toubro
-  'AXISBANK',    // Axis Bank
-  'ASIANPAINT',  // Asian Paints
-  'MARUTI',      // Maruti Suzuki
-  'TITAN',       // Titan Company
+  'AAPL',    // Apple
+  'MSFT',    // Microsoft
+  'GOOGL',   // Google
+  'AMZN',    // Amazon
+  'TSLA',    // Tesla
+  'META',    // Meta
+  'NVDA',    // NVIDIA
+  'JPM',     // JPMorgan
+  'V',       // Visa
+  'WMT',     // Walmart
 ]
 ```
-
-## 🔐 Environment Variables
-
-```env
-# Required for fallback
-FINNHUB_API_KEY=your_finnhub_api_key_here
-```
-
-Get your Finnhub API key:
-1. Go to https://finnhub.io
-2. Sign up for free account
-3. Copy API key from dashboard
-4. Add to `.env` file
 
 ## 📈 Chart Implementation
 
 ### Candlestick Charts
-Using `lightweight-charts` library for professional visualization:
+Using `lightweight-charts` library:
 
 ```typescript
 const candlestickSeries = chart.addCandlestickSeries({
@@ -242,132 +190,131 @@ const candlestickSeries = chart.addCandlestickSeries({
 });
 ```
 
-### Data Format
+### Chart Data Format
 ```typescript
 {
-  time: '2024-01-15',
-  open: 2435.00,
-  high: 2465.00,
-  low: 2430.00,
-  close: 2450.50
+  time: '2024-01-15',  // YYYY-MM-DD format
+  open: 149.50,
+  high: 152.00,
+  low: 149.00,
+  close: 150.50
 }
 ```
+
+### Time Periods Supported
+- `1d` - 1 day
+- `5d` - 5 days
+- `1w` - 1 week
+- `1mo` - 1 month (default)
+- `3mo` - 3 months
+- `6mo` - 6 months
+- `1y` - 1 year
+
+## 🔐 Environment Variables
+
+Required in `.env`:
+```env
+FINNHUB_API_KEY=your_api_key_here
+```
+
+### Getting Your API Key
+1. Go to https://finnhub.io
+2. Sign up for free account
+3. Navigate to Dashboard
+4. Copy your API key
+5. Add to `.env` file
 
 ## 🚨 Error Handling
 
-### Graceful Degradation
-1. **Primary API fails** → Try Finnhub
-2. **Both APIs fail** → Show error message
-3. **Partial data** → Display what's available
-4. **Invalid symbol** → Show "Stock not found"
-
-### Error Messages
-- User-friendly messages
-- No technical jargon
-- Actionable suggestions
-- Retry options
-
-### Example Error Handling
+### Timeout Handling
+All requests have 10-second timeout:
 ```typescript
-try {
-  const data = await marketService.getStockPrice(symbol);
-  return data;
-} catch (error) {
-  if (error.message.includes('unavailable')) {
-    // Show retry button
-  } else if (error.message.includes('not found')) {
-    // Show search suggestions
-  }
-}
+fetch(url, { signal: AbortSignal.timeout(10000) })
 ```
+
+### Error Scenarios
+1. **Network timeout** → Show error message
+2. **Invalid API key** → Check environment variables
+3. **Rate limit exceeded** → Use cached data
+4. **Symbol not found** → Show "Stock not found"
+5. **No historical data** → Show message, hide chart
+
+### User-Friendly Messages
+- "Failed to fetch stock price"
+- "Failed to fetch stock quote"
+- "Search temporarily unavailable"
+- "No historical data available"
 
 ## 🔍 Search Implementation
 
-### Multi-Source Search
-1. Try primary API search
-2. If fails, use Finnhub search
-3. Return combined results
-4. Limit to 10 results
-
-### Search Features
+### Features
 - Fuzzy matching
-- Symbol and name search
+- Symbol and company name search
+- Stock type information
 - Exchange information
-- Stock type (equity, ETF, etc.)
+- Limited to 10 results
+
+### Example Usage
+```typescript
+const results = await marketService.searchStocks('apple');
+// Returns: [{ symbol: 'AAPL', name: 'Apple Inc', ... }]
+```
 
 ## 📊 Trading Integration
 
 ### Live Price Fetching
-Always fetch fresh price before trade execution:
+Always fetch fresh price before trade:
 
 ```typescript
 // In trading modal
-const currentPrice = await marketService.getStockPrice(symbol);
+const stockPrice = await marketService.getStockPrice(symbol);
 
 // Execute trade with latest price
-await executeTrade(symbol, quantity, currentPrice.price);
+await executeTrade(symbol, quantity, stockPrice.price);
 ```
 
 ### Price Validation
-- Verify price is recent (< 15 seconds old)
-- Check for significant price changes
-- Warn user if price moved significantly
-
-## 🧪 Testing
-
-### Test Scenarios
-1. **Primary API working** → Should use primary
-2. **Primary API down** → Should fallback to Finnhub
-3. **Both APIs down** → Should show error
-4. **Invalid symbol** → Should handle gracefully
-5. **Network timeout** → Should retry with fallback
-
-### Manual Testing
-```bash
-# Test primary API
-curl "https://nse-api-ruby.vercel.app/stock?symbol=RELIANCE&res=num"
-
-# Test Finnhub
-curl "https://finnhub.io/api/v1/quote?symbol=RELIANCE.NS&token=YOUR_KEY"
-```
+- Cache bypassed for trades (always fresh)
+- Verify price is valid (> 0)
+- Show current price in trading modal
 
 ## 📱 UI Integration
 
 ### Dashboard
 ```typescript
 const stocks = await marketService.getStocks(popularSymbols);
-// Display in table
+// Display in table with prices
 ```
 
-### Stock Detail
+### Stock Detail Page
 ```typescript
 const quote = await marketService.getStockQuote(symbol);
-const timeSeries = await marketService.getTimeSeries(symbol);
-// Display quote + chart
+const timeSeries = await marketService.getTimeSeries(symbol, '1mo');
+// Display quote info + candlestick chart
 ```
 
 ### Search
 ```typescript
 const results = await marketService.searchStocks(query);
-// Display search results
+// Display search results dropdown
 ```
 
-### Trading Panel
+### Trading Modal
 ```typescript
 const currentPrice = await marketService.getStockPrice(symbol);
-// Use for order placement
+// Use for order calculations
 ```
 
 ## 🚀 Performance Optimization
 
 ### Batch Requests
-Fetch multiple stocks in one call when possible:
+Fetch multiple stocks efficiently:
 ```typescript
-const stocks = await marketService.getStocks(['RELIANCE', 'TCS', 'INFY']);
+const stocks = await marketService.getStocks(['AAPL', 'MSFT', 'GOOGL']);
 ```
 
 ### Parallel Requests
-Use Promise.all for independent requests:
+Use Promise.all for independent data:
 ```typescript
 const [quote, timeSeries] = await Promise.all([
   marketService.getStockQuote(symbol),
@@ -375,71 +322,106 @@ const [quote, timeSeries] = await Promise.all([
 ]);
 ```
 
-### Request Timeout
-All requests have 5-second timeout to prevent hanging.
+### Request Deduplication
+Cache prevents duplicate requests within 15 seconds.
 
-## 🔄 Cache Management
+## 📊 Rate Limit Management
 
-### When to Clear Cache
-- User manually refreshes
-- After trade execution
-- On page navigation
-- After 15 seconds (automatic)
+### Free Tier Limits
+- **60 calls per minute**
+- Resets every minute
+- Shared across all endpoints
 
-### Manual Cache Clear
-```typescript
-marketService.clearCache();
+### Staying Within Limits
+1. **Caching** - 15s cache reduces calls by ~75%
+2. **Batch requests** - Fetch multiple stocks together
+3. **Debouncing** - Delay search requests
+4. **Smart refresh** - Only refresh visible data
+
+### Monitoring Usage
+Check response headers:
+```
+X-Ratelimit-Limit: 60
+X-Ratelimit-Remaining: 45
+X-Ratelimit-Reset: 1234567890
 ```
 
-## 📚 API Rate Limits
+## 🧪 Testing
 
-### Primary API (0xramm)
-- No documented rate limits
-- Free tier
-- Best effort basis
+### Manual API Testing
+```bash
+# Test quote endpoint
+curl "https://finnhub.io/api/v1/quote?symbol=AAPL&token=YOUR_KEY"
 
-### Finnhub
-- **Free tier**: 60 calls/minute
-- **Paid tier**: Higher limits
-- Caching helps stay within limits
+# Test search endpoint
+curl "https://finnhub.io/api/v1/search?q=apple&token=YOUR_KEY"
+
+# Test candle endpoint
+curl "https://finnhub.io/api/v1/stock/candle?symbol=AAPL&resolution=D&from=1609459200&to=1640995200&token=YOUR_KEY"
+```
+
+### Test Scenarios
+1. **Valid symbol** → Should return data
+2. **Invalid symbol** → Should handle gracefully
+3. **Network timeout** → Should show error
+4. **Rate limit** → Should use cache
+5. **No historical data** → Should handle empty response
 
 ## 🆘 Troubleshooting
 
-### "Market data unavailable"
-1. Check internet connection
-2. Verify API keys in `.env`
-3. Check API status pages
-4. Try manual refresh
-5. Clear cache
+### "Failed to fetch stock price"
+**Causes**:
+- Invalid API key
+- Network issues
+- Rate limit exceeded
+- Invalid symbol
 
-### Slow Loading
-1. Check network speed
-2. Verify cache is working
-3. Check API response times
+**Solutions**:
+1. Verify `FINNHUB_API_KEY` in `.env`
+2. Check internet connection
+3. Wait 1 minute (rate limit reset)
+4. Verify symbol format (e.g., AAPL not Apple)
+
+### Charts Not Showing
+**Causes**:
+- No historical data available
+- Invalid date range
+- API error
+
+**Solutions**:
+1. Check browser console for errors
+2. Try different stock symbol
+3. Verify API key is valid
+4. Check if stock has trading history
+
+### Slow Performance
+**Causes**:
+- Cache not working
+- Too many API calls
+- Network latency
+
+**Solutions**:
+1. Verify cache is enabled
+2. Check DevTools Network tab
+3. Reduce number of stocks displayed
 4. Consider upgrading Finnhub plan
-
-### Wrong Data
-1. Clear cache
-2. Verify symbol format
-3. Check API responses
-4. Report to API provider
 
 ## 🔮 Future Enhancements
 
+- [ ] WebSocket for real-time updates
 - [ ] Redis caching for production
-- [ ] WebSocket real-time updates
-- [ ] More data sources (Alpha Vantage, Yahoo Finance)
-- [ ] Smart routing based on symbol
-- [ ] Historical data caching
-- [ ] Offline mode with last known prices
-- [ ] Data quality monitoring
-- [ ] Automatic API health checks
+- [ ] Multiple time period selection for charts
+- [ ] Technical indicators (MA, RSI, MACD)
+- [ ] Volume charts
+- [ ] Comparison charts (multiple stocks)
+- [ ] Export chart as image
+- [ ] Custom watchlists
 
 ## 📖 References
 
-- Primary API: https://github.com/0xramm/nse-api
-- Finnhub Docs: https://finnhub.io/docs/api
+- Finnhub API Docs: https://finnhub.io/docs/api
 - Lightweight Charts: https://tradingview.github.io/lightweight-charts/
+- Next.js Data Fetching: https://nextjs.org/docs/app/building-your-application/data-fetching
 
 ---
 

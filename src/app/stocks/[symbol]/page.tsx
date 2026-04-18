@@ -35,78 +35,116 @@ export default function StockDetail() {
     fetchPortfolio();
   }, [symbol]);
 
+  useEffect(() => {
+    // Cleanup function for chart
+    return () => {
+      if (chartContainerRef.current) {
+        chartContainerRef.current.innerHTML = '';
+      }
+    };
+  }, []);
+
   const fetchStockData = async () => {
     try {
       const response = await fetch(`/api/stocks/${symbol}`);
       const data = await response.json();
+      
+      if (data.error) {
+        console.error('Error from API:', data.error);
+        setLoading(false);
+        return;
+      }
+      
       setQuote(data.quote);
 
+      // Render chart if we have data
       if (chartContainerRef.current && data.timeSeries && data.timeSeries.length > 0) {
-        // Clear any existing chart
-        chartContainerRef.current.innerHTML = '';
-        
-        const chart = createChart(chartContainerRef.current, {
-          layout: {
-            background: { type: ColorType.Solid, color: '#ffffff' },
-            textColor: '#6b7280',
-          },
-          grid: {
-            vertLines: { color: '#f3f4f6' },
-            horzLines: { color: '#f3f4f6' },
-          },
-          width: chartContainerRef.current.clientWidth,
-          height: 400,
-          timeScale: {
-            timeVisible: true,
-            secondsVisible: false,
-          },
-        });
-
-        // Create candlestick series for better visualization
-        const candlestickSeries = chart.addCandlestickSeries({
-          upColor: '#10b981',
-          downColor: '#ef4444',
-          borderVisible: false,
-          wickUpColor: '#10b981',
-          wickDownColor: '#ef4444',
-        });
-
-        const chartData = data.timeSeries
-          .map((item: any) => ({
-            time: new Date(item.date).toISOString().split('T')[0],
-            open: item.open,
-            high: item.high,
-            low: item.low,
-            close: item.close,
-          }))
-          .filter((item: any) => item.close > 0)
-          .sort((a: any, b: any) => a.time.localeCompare(b.time));
-
-        if (chartData.length > 0) {
-          candlestickSeries.setData(chartData);
-          chart.timeScale().fitContent();
-        }
-
-        // Handle window resize
-        const handleResize = () => {
-          if (chartContainerRef.current) {
-            chart.applyOptions({
-              width: chartContainerRef.current.clientWidth,
-            });
-          }
-        };
-
-        window.addEventListener('resize', handleResize);
-
-        return () => {
-          window.removeEventListener('resize', handleResize);
-          chart.remove();
-        };
+        renderChart(data.timeSeries);
       }
     } catch (error) {
       console.error('Error fetching stock data:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const renderChart = (timeSeriesData: any[]) => {
+    if (!chartContainerRef.current) return;
+
+    // Clear any existing chart
+    chartContainerRef.current.innerHTML = '';
+    
+    try {
+      const chart = createChart(chartContainerRef.current, {
+        layout: {
+          background: { type: ColorType.Solid, color: '#ffffff' },
+          textColor: '#6b7280',
+        },
+        grid: {
+          vertLines: { color: '#f3f4f6' },
+          horzLines: { color: '#f3f4f6' },
+        },
+        width: chartContainerRef.current.clientWidth,
+        height: 400,
+        timeScale: {
+          timeVisible: true,
+          secondsVisible: false,
+        },
+      });
+
+      // Create candlestick series
+      const candlestickSeries = chart.addCandlestickSeries({
+        upColor: '#10b981',
+        downColor: '#ef4444',
+        borderVisible: false,
+        wickUpColor: '#10b981',
+        wickDownColor: '#ef4444',
+      });
+
+      // Prepare chart data
+      const chartData = timeSeriesData
+        .map((item: any) => {
+          const date = new Date(item.date);
+          return {
+            time: date.toISOString().split('T')[0],
+            open: parseFloat(item.open),
+            high: parseFloat(item.high),
+            low: parseFloat(item.low),
+            close: parseFloat(item.close),
+          };
+        })
+        .filter((item: any) => 
+          item.close > 0 && 
+          item.open > 0 && 
+          item.high > 0 && 
+          item.low > 0 &&
+          !isNaN(item.close)
+        )
+        .sort((a: any, b: any) => a.time.localeCompare(b.time));
+
+      if (chartData.length > 0) {
+        candlestickSeries.setData(chartData);
+        chart.timeScale().fitContent();
+      }
+
+      // Handle window resize
+      const handleResize = () => {
+        if (chartContainerRef.current) {
+          chart.applyOptions({
+            width: chartContainerRef.current.clientWidth,
+          });
+        }
+      };
+
+      window.addEventListener('resize', handleResize);
+
+      // Cleanup
+      return () => {
+        window.removeEventListener('resize', handleResize);
+        chart.remove();
+      };
+    } catch (error) {
+      console.error('Error rendering chart:', error);
     }
   };
 
