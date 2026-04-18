@@ -1,0 +1,6 @@
+node_modules
+.next
+.env.local
+.DS_Store
+*.log
+stitch_tradesphere_virtual_trading_simulator
